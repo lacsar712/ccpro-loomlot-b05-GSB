@@ -10,6 +10,7 @@ from app.models.dye_house import DyeHouse
 from app.models.user import User
 from app.models.vat import Vat
 from app.schemas.vat import VatCreate, VatUpdate, VatOut
+from app.services import water_rules
 
 router = APIRouter(prefix="/api/vats", tags=["vats"])
 
@@ -35,6 +36,8 @@ def create_vat(
     house = db.query(DyeHouse).filter(DyeHouse.id == payload.dye_house_id).first()
     if not house:
         raise HTTPException(status_code=400, detail="染坊不存在")
+    # 回用水染坊：纤维不得含「棉」（与染程路由同一套判定）
+    water_rules.validate_fiber_type(house, payload.fiber_type)
     item = Vat(
         dye_house_id=payload.dye_house_id,
         vat_code=payload.vat_code,
@@ -79,6 +82,12 @@ def update_vat(
         house = db.query(DyeHouse).filter(DyeHouse.id == data["dye_house_id"]).first()
         if not house:
             raise HTTPException(status_code=400, detail="染坊不存在")
+    # 改坊看目标坊，未改坊看原坊；纤维取更新后的最终值
+    effective_house_id = data.get("dye_house_id", item.dye_house_id)
+    house = db.get(DyeHouse, effective_house_id)
+    effective_fiber_type = data.get("fiber_type", item.fiber_type)
+    # 回用水染坊：新建/改纤维/改坊均不得含「棉」（与染程路由同一套判定）
+    water_rules.validate_fiber_type(house, effective_fiber_type)
     for k, v in data.items():
         setattr(item, k, v)
     try:

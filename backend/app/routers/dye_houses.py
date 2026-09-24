@@ -1,6 +1,6 @@
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -15,10 +15,14 @@ router = APIRouter(prefix="/api/dye-houses", tags=["dye-houses"])
 
 @router.get("", response_model=List[DyeHouseOut])
 def list_dye_houses(
+    reused_only: Optional[bool] = Query(None, alias="reusedOnly"),
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    return db.query(DyeHouse).order_by(DyeHouse.id).all()
+    q = db.query(DyeHouse)
+    if reused_only is True:
+        q = q.filter(DyeHouse.water_reused.is_(True))
+    return q.order_by(DyeHouse.id).all()
 
 
 @router.post("", response_model=DyeHouseOut, status_code=status.HTTP_201_CREATED)
@@ -29,6 +33,8 @@ def create_dye_house(
 ):
     item = DyeHouse(
         name=payload.name,
+        water_hardness_mg_l=payload.water_hardness_mg_l,
+        water_reused=payload.water_reused,
         water_note=payload.water_note,
         notes=payload.notes,
     )
@@ -60,7 +66,19 @@ def update_dye_house(
     item = db.query(DyeHouse).filter(DyeHouse.id == house_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="染坊不存在")
-    for k, v in payload.model_dump(exclude_unset=True).items():
+    data = payload.model_dump(exclude_unset=True)
+    # 水源硬度与是否回用水必须随更新一并补齐，缺字段须先补齐
+    if "water_hardness_mg_l" not in data or "water_reused" not in data:
+        missing = []
+        if "water_hardness_mg_l" not in data:
+            missing.append("waterHardnessMgL")
+        if "water_reused" not in data:
+            missing.append("waterReused")
+        raise HTTPException(
+            status_code=400,
+            detail=f"更新染坊须同时补齐水源字段：{('、'.join(missing))} 缺失",
+        )
+    for k, v in data.items():
         setattr(item, k, v)
     db.commit()
     db.refresh(item)

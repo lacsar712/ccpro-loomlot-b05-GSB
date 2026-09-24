@@ -5,7 +5,11 @@ class DashboardStats(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     dye_house_total: int = Field(serialization_alias="dyeHouseTotal")
+    reused_water_house_count: int = Field(serialization_alias="reusedWaterHouseCount")
     vat_ready_count: int = Field(serialization_alias="vatReadyCount")
     vat_dyeing_count: int = Field(serialization_alias="vatDyeingCount")
     lots_last_7d: int = Field(serialization_alias="lotsLast7d")
+    hardness_limited_active_lot_count: int = Field(
+        serialization_alias="hardnessLimitedActiveLotCount"
+    )
     checks_last_24h: int = Field(serialization_alias="checksLast24h")
