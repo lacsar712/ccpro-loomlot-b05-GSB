@@ -24,6 +24,9 @@ PY
 echo "Creating tables..."
 python -c "from app.database import Base, engine; from app import models; Base.metadata.create_all(bind=engine)"
 
+echo "Applying lightweight migrations..."
+python -c "from app.database import engine; from app.migrations import run_lightweight_migrations; run_lightweight_migrations(engine)"
+
 echo "Seeding data..."
 python -c "from app.seed import seed; seed()"
 

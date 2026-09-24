@@ -3,6 +3,7 @@
   import { api, VAT_STATUS, toLocalInput, fromLocalInput } from '../lib/api.js';
 
   let vats = [];
+  let houses = [];
   let rows = [];
   let error = '';
   let form = {
@@ -17,7 +18,11 @@
   async function load() {
     error = '';
     try {
-      [vats, rows] = await Promise.all([api('/vats'), api('/dye-lots')]);
+      [vats, houses, rows] = await Promise.all([
+        api('/vats'),
+        api('/dye-houses'),
+        api('/dye-lots'),
+      ]);
       const usable = vats.filter((v) => v.status === 'ready' || v.status === 'dyeing');
       if (!form.vatId && usable.length) form.vatId = String(usable[0].id);
       else if (!form.vatId && vats.length) form.vatId = String(vats[0].id);
@@ -27,6 +32,13 @@
   }
 
   onMount(load);
+
+  // 当前所选染缸所属染坊；硬度 > 200 时布重上限 30kg
+  $: selectedVat = vats.find((v) => v.id === Number(form.vatId));
+  $: selectedHouse = selectedVat
+    ? houses.find((h) => h.id === selectedVat.dyeHouseId)
+    : null;
+  $: hardnessRestricted = selectedHouse && selectedHouse.waterHardnessMgL > 200;
 
   function vatLabel(id) {
     const v = vats.find((x) => x.id === id);
@@ -86,7 +98,10 @@
 </script>
 
 <h1 class="page-title">染程</h1>
-<p class="page-sub">仅 ready / dyeing 染缸可开缸；提交后染缸自动变为染色中。</p>
+<p class="page-sub">
+  仅 ready / dyeing 染缸可开缸；提交后染缸自动变为染色中。
+  所属坊硬度 &gt; 200mg/L 时布重不得超过 30kg。
+</p>
 
 <div class="panel" style="margin-bottom:1rem;">
   <div class="form-grid">
@@ -101,7 +116,15 @@
       </select>
     </label>
     <label>配方名 <input bind:value={form.recipeName} /></label>
-    <label>布料 kg <input type="number" step="0.1" bind:value={form.fabricKg} /></label>
+    <label
+      >布料 kg{#if hardnessRestricted}<span class="err" style="font-weight:600;">（高硬度坊，上限 30kg）</span>{/if}
+      <input
+        type="number"
+        step="0.1"
+        max={hardnessRestricted ? 30 : undefined}
+        bind:value={form.fabricKg}
+      />
+    </label>
     <label>开始时间 <input type="datetime-local" bind:value={form.startedAt} /></label>
     <label>操作员 <input bind:value={form.operatorName} /></label>
   </div>

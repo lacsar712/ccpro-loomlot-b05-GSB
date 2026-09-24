@@ -26,6 +26,9 @@
 
   onMount(load);
 
+  $: selectedHouse = houses.find((h) => h.id === Number(form.dyeHouseId));
+  $: houseReused = selectedHouse && selectedHouse.waterReused;
+
   function houseName(id) {
     return houses.find((h) => h.id === id)?.name || id;
   }
@@ -93,7 +96,9 @@
 </script>
 
 <h1 class="page-title">染缸</h1>
-<p class="page-sub">状态：就绪 / 染色中 / 排液。容量单位为升。</p>
+<p class="page-sub">
+  状态：就绪 / 染色中 / 排液。容量单位为升。所选坊使用回用水时，纤维类型不得含「棉」。
+</p>
 
 <div class="panel" style="margin-bottom:1rem;">
   <div class="form-grid">
@@ -101,12 +106,17 @@
       >所属染坊
       <select bind:value={form.dyeHouseId}>
         {#each houses as h}
-          <option value={String(h.id)}>{h.name}</option>
+          <option value={String(h.id)}
+            >{h.name}{h.waterReused ? '（回用水）' : ''}{h.waterHardnessMgL > 200 ? `（硬度${h.waterHardnessMgL}）` : ''}</option
+          >
         {/each}
       </select>
     </label>
     <label>缸号 <input bind:value={form.vatCode} /></label>
-    <label>纤维类型 <input bind:value={form.fiberType} /></label>
+    <label
+      >纤维类型{#if houseReused}<span class="err" style="font-weight:600;">（回用水坊禁用含「棉」）</span>{/if}
+      <input bind:value={form.fiberType} />
+    </label>
     <label>容量 (L) <input type="number" step="0.1" bind:value={form.capacityL} /></label>
     <label
       >状态

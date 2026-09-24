@@ -6,14 +6,41 @@ from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
 from app.database import get_db
+from app.models.dye_house import DyeHouse
 from app.models.dye_lot import DyeLot
 from app.models.user import User
 from app.models.vat import Vat
 from app.schemas.dye_lot import DyeLotCreate, DyeLotUpdate, DyeLotOut
+from app.water_rules import enforce_fabric_kg
 
 router = APIRouter(prefix="/api/dye-lots", tags=["dye-lots"])
 
 ALLOWED_VAT_STATUSES = {"ready", "dyeing"}
+
+
+def _get_vat_or_400(db: Session, vat_id: int, *, moved: bool = False) -> Vat:
+    vat = db.query(Vat).filter(Vat.id == vat_id).first()
+    if not vat:
+        raise HTTPException(status_code=400, detail="染缸不存在")
+    if vat.status not in ALLOWED_VAT_STATUSES:
+        if moved:
+            raise HTTPException(
+                status_code=409,
+                detail=f"目标染缸状态为「{vat.status}」，无法改挂染程",
+            )
+        raise HTTPException(
+            status_code=409,
+            detail=f"染缸状态为「{vat.status}」，仅 ready 或 dyeing 时可新建染程",
+        )
+    return vat
+
+
+def _get_house_or_400(db: Session, dye_house_id: int) -> DyeHouse:
+    house = db.query(DyeHouse).filter(DyeHouse.id == dye_house_id).first()
+    if not house:
+        # 染缸必有所属染坊；走到这里说明数据异常
+        raise HTTPException(status_code=400, detail="染坊不存在")
+    return house
 
 
 @router.get("", response_model=List[DyeLotOut])
@@ -34,14 +61,10 @@ def create_dye_lot(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    vat = db.query(Vat).filter(Vat.id == payload.vat_id).first()
-    if not vat:
-        raise HTTPException(status_code=400, detail="染缸不存在")
-    if vat.status not in ALLOWED_VAT_STATUSES:
-        raise HTTPException(
-            status_code=409,
-            detail=f"染缸状态为「{vat.status}」，仅 ready 或 dyeing 时可新建染程",
-        )
+    vat = _get_vat_or_400(db, payload.vat_id)
+    house = _get_house_or_400(db, vat.dye_house_id)
+    # 水源硬度联锁：高硬度坊布重 ≤ 30kg（与染缸路由共用同一判定）
+    enforce_fabric_kg(house.water_hardness_mg_l, payload.fabric_kg)
     item = DyeLot(
         vat_id=payload.vat_id,
         recipe_name=payload.recipe_name,
@@ -79,16 +102,21 @@ def update_dye_lot(
     if not item:
         raise HTTPException(status_code=404, detail="染程不存在")
     data = payload.model_dump(exclude_unset=True)
+
+    target_vat = None
     if "vat_id" in data and data["vat_id"] != item.vat_id:
-        vat = db.query(Vat).filter(Vat.id == data["vat_id"]).first()
-        if not vat:
-            raise HTTPException(status_code=400, detail="染缸不存在")
-        if vat.status not in ALLOWED_VAT_STATUSES:
-            raise HTTPException(
-                status_code=409,
-                detail=f"目标染缸状态为「{vat.status}」，无法改挂染程",
-            )
-        vat.status = "dyeing"
+        target_vat = _get_vat_or_400(db, data["vat_id"], moved=True)
+    effective_vat = target_vat or db.query(Vat).filter(Vat.id == item.vat_id).first()
+    house = _get_house_or_400(db, effective_vat.dye_house_id)
+
+    # 以提交后的最终布重再过一遍同一套水源硬度判定（换缸到高硬坊同样受限）
+    effective_fabric_kg = (
+        data["fabric_kg"] if "fabric_kg" in data else item.fabric_kg
+    )
+    enforce_fabric_kg(house.water_hardness_mg_l, effective_fabric_kg)
+
+    if target_vat is not None:
+        target_vat.status = "dyeing"
     for k, v in data.items():
         setattr(item, k, v)
     db.commit()

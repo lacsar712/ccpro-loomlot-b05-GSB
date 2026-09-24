@@ -47,7 +47,7 @@ docker compose down
 
 ## 业务实体
 
-1. **DyeHouse** — `name`, `waterNote`, `notes`
+1. **DyeHouse** — `name`, `waterHardnessMgL`(0–500, mg/L), `waterReused`(是否回用水), `waterNote`(可选备注), `notes`
 2. **Vat** — `dyeHouseId`, `vatCode`, `fiberType`, `capacityL`, `status` ∈ `ready|dyeing|drain`
 3. **DyeLot** — `vatId`, `recipeName`, `fabricKg`, `startedAt`, `operatorName`
 4. **FastnessCheck** — `dyeLotId`, `checkedAt`, `washFastness`(1–5), `rubFastness`(>0), `tempC`, `notes`
@@ -57,6 +57,14 @@ docker compose down
 - 仅当染缸状态为 `ready` 或 `dyeing` 时可新建染程，否则 409
 - 新建染程后，染缸状态自动设为 `dyeing`
 - 可选接口：`POST /api/vats/{id}/drain` 将染缸置为 `drain`
+
+#### 水源联锁（染程路由与染缸路由共用 `app/water_rules.py` 同一套判定）
+
+- 染坊水源硬度 **> 200 mg/L** 时，其染缸上新建或更新染程的布重不得超过 **30 kg**；超限返回 **400**，错误信息点明因硬度（含换缸到高硬度坊的情形）
+- 染坊 **使用回用水**（`waterReused=true`）时，该坊染缸新建或更新（含改纤维、移入该坊）的纤维类型不得含「**棉**」字样；违者返回 **409**
+- 新建染坊时硬度与是否回用水均必填，硬度范围 0–500；更新染坊必须同时补齐这两个字段，缺失返回 400 中文提示。原自由文本用水说明改为可选字段 `waterNote`
+- 染坊列表支持 `GET /api/dye-houses?reusedOnly=true` 仅筛选回用水坊
+- 看板新增：回用水坊数（与上述筛选同条件同计数）、因硬度受限的进行中染程数（dyeing 缸且所属坊硬度 > 200 的染程手数）
 
 ## 主要 API
 
